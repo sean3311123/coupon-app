@@ -1,0 +1,99 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.16.9'
+          channel: 'stable'
+
+      - name: Debug - List files
+        run: |
+          echo "=== Root files ==="
+          ls -la
+          echo "=== lib/ ==="
+          ls -la lib/ || echo "lib/ not found!"
+          echo "=== android/ ==="
+          ls -la android/ || echo "android/ not found!"
+          echo "=== pubspec.yaml ==="
+          cat pubspec.yaml || echo "pubspec.yaml not found!"
+
+      - name: Create missing android structure
+        run: |
+          if [ ! -f android/settings.gradle ]; then
+            echo "Creating android skeleton..."
+            mkdir -p android/app/src/main/kotlin/com/coupon/app
+            mkdir -p android/gradle/wrapper
+            
+            cat > android/settings.gradle << 'EOF'
+include ':app'
+EOF
+            
+            cat > android/build.gradle << 'EOF'
+allprojects { repositories { google(); mavenCentral() } }
+EOF
+            
+            cat > android/gradle.properties << 'EOF'
+org.gradle.jvmargs=-Xmx4g
+android.useAndroidX=true
+android.enableJetifier=true
+EOF
+            
+            cat > android/app/build.gradle << 'EOF'
+plugins { id 'com.android.application' }
+android {
+    compileSdkVersion 34
+    defaultConfig { applicationId "com.coupon.app"; minSdkVersion 21; targetSdkVersion 34; versionCode 1; versionName "1.0.0" }
+}
+dependencies { implementation 'androidx.appcompat:appcompat:1.6.1' }
+EOF
+            
+            cat > android/app/src/main/AndroidManifest.xml << 'EOF'
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application android:label="省钱券集" android:icon="@mipmap/ic_launcher">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+EOF
+            
+            cat > android/gradle/wrapper/gradle-wrapper.properties << 'EOF'
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-all.zip
+EOF
+          fi
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Flutter build APK
+        run: flutter build apk --release
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coupon-app-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
